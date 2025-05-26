@@ -460,7 +460,6 @@ class _WebFfmpegWasmExporter extends Exporter
 
     String commandString =
         '-framerate $_inputFpsForFFmpegCommand -i frame_%05d.png '
-        '-vf vflip '
         '-r $outputFpsForCommand -t $durationString '
         '${outputWasmFileName}';
 
