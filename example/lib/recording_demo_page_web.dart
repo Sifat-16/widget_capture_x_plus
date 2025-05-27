@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:html'
-    if (dart.library.io) 'html_stub.dart'
-    as html; // Use a stub for non-web
-import 'dart:io' show File;
+import 'dart:io' show File; // Keep for native File operations
+import 'dart:js_interop'; // For JS types and extensions like .toJS
 import 'dart:typed_data'; // For Uint8List
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+// MODIFIED: Replaced dart:html with package:web and a conceptual stub
+import 'package:web/web.dart' if (dart.library.io) 'web_stub.dart' as web;
 import 'package:widget_capture_x_plus/widget_capture_x_plus.dart';
 import 'package:widget_capture_x_plus/widget_capture_x_plus_controller.dart';
 
@@ -33,17 +33,14 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
   @override
   void initState() {
     super.initState();
-    // For web, webm with vp9 might be more efficient/reliable with ffmpeg.wasm
-    // than mp4 with h264 unless the wasm build is specifically optimized for it.
     _outputFormatForRecording = kIsWeb ? "webm" : "mp4";
 
     _captureController = WidgetCaptureXPlusController(
       pixelRatio: 1.0,
-      skipFramesBetweenCaptures: 1, // Aim for ~30 FPS if device is 60 FPS
+      skipFramesBetweenCaptures: 1,
       outputBaseFileName: "recorded_widget_video",
       outputFormat: _outputFormatForRecording,
-      targetOutputFps: 24, // Common video frame rate
-      // Example: targetOutputResolution: "640x360", // Ensure even dimensions if using yuv420p
+      targetOutputFps: 24,
     );
 
     _captureController.addListener(_onCaptureStateChanged);
@@ -115,7 +112,8 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
       _recordedVideoPlayerController?.dispose();
       _recordedVideoPlayerController = null;
       if (kIsWeb && _webRecordedVideoBlobUrl != null) {
-        html.Url.revokeObjectUrl(_webRecordedVideoBlobUrl!);
+        // MODIFIED: Use web.URL
+        web.URL.revokeObjectURL(_webRecordedVideoBlobUrl!);
         _webRecordedVideoBlobUrl = null;
       }
       _isProcessingVideo = false;
@@ -130,9 +128,7 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
 
   Future<void> _initializeAndPlayNativeVideo(String filePath) async {
     _recordedVideoPlayerController?.dispose();
-    _recordedVideoPlayerController = VideoPlayerController.file(
-      File(filePath),
-    ); // dart:io File
+    _recordedVideoPlayerController = VideoPlayerController.file(File(filePath));
     try {
       await _recordedVideoPlayerController!.initialize();
       await _recordedVideoPlayerController!.setLooping(true);
@@ -151,16 +147,20 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
     String suggestedFileName,
   ) async {
     if (_webRecordedVideoBlobUrl != null) {
-      html.Url.revokeObjectUrl(_webRecordedVideoBlobUrl!);
+      // MODIFIED: Use web.URL
+      web.URL.revokeObjectURL(_webRecordedVideoBlobUrl!);
     }
     _recordedVideoPlayerController?.dispose();
 
-    String mimeType =
-        'video/$_outputFormatForRecording'; // e.g. video/mp4, video/webm
+    String mimeType = 'video/$_outputFormatForRecording';
     if (_outputFormatForRecording == "mov") mimeType = "video/quicktime";
 
-    final blob = html.Blob([videoData], mimeType);
-    _webRecordedVideoBlobUrl = html.Url.createObjectUrlFromBlob(blob);
+    // MODIFIED: Use web.Blob and JS interop for data
+    // Convert Uint8List to a JS-compatible typed array and then to a JSArray for the Blob constructor.
+    final jsData = videoData.toJS; // JSUint8Array
+    final blobParts = [jsData].toJS; // JSArray<JSUint8Array>
+    final blob = web.Blob(blobParts, web.BlobPropertyBag(type: mimeType));
+    _webRecordedVideoBlobUrl = web.URL.createObjectURL(blob);
 
     _recordedVideoPlayerController = VideoPlayerController.networkUrl(
       Uri.parse(_webRecordedVideoBlobUrl!),
@@ -179,13 +179,13 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
       });
       debugPrint('Error initializing recorded web video player: $e');
       if (_webRecordedVideoBlobUrl != null) {
-        html.Url.revokeObjectUrl(_webRecordedVideoBlobUrl!);
+        // MODIFIED: Use web.URL
+        web.URL.revokeObjectURL(_webRecordedVideoBlobUrl!);
         _webRecordedVideoBlobUrl = null;
       }
     }
   }
 
-  // Optional: Function to trigger download for web
   Future<void> _triggerWebVideoDownload() async {
     if (!kIsWeb ||
         _captureController.lastOutput?.rawData == null ||
@@ -202,13 +202,24 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
       String mimeType = 'video/$_outputFormatForRecording';
       if (_outputFormatForRecording == "mov") mimeType = "video/quicktime";
 
-      final blob = html.Blob([output.rawData!], mimeType);
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor =
-          html.AnchorElement(href: url)
-            ..setAttribute("download", output.suggestedFileName!)
-            ..click();
-      html.Url.revokeObjectUrl(url);
+      // MODIFIED: Use web.Blob and JS interop for download anchor
+      final jsData = output.rawData!.toJS;
+      final blobParts = [jsData].toJS;
+      final blob = web.Blob(blobParts, web.BlobPropertyBag(type: mimeType));
+      final url = web.URL.createObjectURL(blob);
+
+      // Create an anchor element using JS interop
+      final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
+      anchor.href = url;
+      anchor.download = output.suggestedFileName!;
+      // web.document.body?.appendChild(anchor); // Not always necessary, but can help in some browsers
+      anchor.click();
+      // web.document.body?.removeChild(anchor); // Clean up if appended
+
+      web.URL.revokeObjectURL(
+        url,
+      ); // Revoke object URL after click initiates download
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Download initiated: ${output.suggestedFileName!}"),
@@ -227,7 +238,8 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
     _captureController.dispose();
     _recordedVideoPlayerController?.dispose();
     if (kIsWeb && _webRecordedVideoBlobUrl != null) {
-      html.Url.revokeObjectUrl(_webRecordedVideoBlobUrl!);
+      // MODIFIED: Use web.URL
+      web.URL.revokeObjectURL(_webRecordedVideoBlobUrl!);
     }
     super.dispose();
   }
@@ -246,7 +258,9 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
         currentRecState == RecordingState.stopping;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Record Remote Video Demo')),
+      appBar: AppBar(
+        title: const Text('Record Remote Video Demo (package:web)'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -263,7 +277,6 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
               ),
             ),
             const SizedBox(height: 10),
-            // Area for the widget to be recorded (Remote Video Player)
             Expanded(
               flex: 2,
               child: Container(
@@ -287,7 +300,6 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
               ),
             ),
             const SizedBox(height: 8),
-            // Live Frame Preview Area
             Text(
               "Live Frame Preview:",
               style: Theme.of(context).textTheme.titleSmall,
@@ -314,11 +326,8 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
                       }
                       if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                         return Transform(
-                          // To flip preview if frames are captured upside down
                           alignment: Alignment.center,
-                          transform: Matrix4.rotationX(
-                            3.1415926535,
-                          ), // Pi radians for 180 deg
+                          transform: Matrix4.rotationX(3.1415926535),
                           child: Image.memory(
                             snapshot.data!,
                             gaplessPlayback: true,
@@ -348,7 +357,6 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
               ),
             ),
             const SizedBox(height: 8),
-            // Area for playing back the recorded video
             Text(
               "Recorded Video Playback:",
               style: Theme.of(context).textTheme.titleSmall,
@@ -435,7 +443,7 @@ class _RecordingDemoPageWebState extends State<RecordingDemoPageWeb> {
   }
 }
 
-// Widget to play the remote video that will be recorded
+// Widget to play the remote video that will be recorded (No changes needed here)
 class RemoteVideoPlayerWidget extends StatefulWidget {
   final String videoUrl;
   final VoidCallback? onInitializedAndPlaying;
@@ -467,8 +475,6 @@ class _RemoteVideoPlayerWidgetState extends State<RemoteVideoPlayerWidget> {
     try {
       await _controller!.initialize();
       await _controller!.setLooping(true);
-      // For recording, you might want it to autoplay or have explicit control
-      // For this example, let's make it autoplay once loaded for easier recording start
       if (mounted) {
         await _controller!.play();
         setState(() {});

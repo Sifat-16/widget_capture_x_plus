@@ -25,6 +25,7 @@ dependencies:
     # the parent directory to use the current plugin's version.
     path: ../
   video_player: ^2.9.5
+  web: ^1.0.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

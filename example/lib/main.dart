@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
             textStyle: const TextStyle(fontSize: 16),
           ),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
